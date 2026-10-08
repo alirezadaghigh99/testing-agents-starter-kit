@@ -1,7 +1,7 @@
-"""Simple AST mutation operators for local evaluation.
+"""AST mutation operators used by the evaluator.
 
-The final grading uses a separate, hidden set of mutants and hand-checked bugs.
-These mutants only give a rough local signal.
+Mutants are small automatic changes to the reference solution. The evaluator leaves out mutants
+that no LiveCodeBench test detects (equivalent mutants) and reports hard mutants separately.
 """
 
 import ast

@@ -18,6 +18,10 @@ instance_template: |
   - Import the code with `from solution import Solution` and call `Solution().{{func_name}}(...)`.
   - Every test needs at least one assertion with an exact expected value from the specification.
   - Do not read or modify files outside this folder.
+  - Do not import os, inspect, pathlib or similar modules in tests, and do not open files: the evaluator
+    rejects any test file that could read the code under test.
+  - Only the first {{max_calls}} calls to the function are measured, counted in file order. Put the most
+    important tests first.
 
   ## Suggested approach
 

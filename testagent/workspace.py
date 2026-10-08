@@ -51,7 +51,7 @@ def collect_tests(workspace: Path, destination: Path) -> list[Path]:
     """Copy every test file the agent wrote into the results directory."""
     destination.mkdir(parents=True, exist_ok=True)
     copied = []
-    for path in sorted((workspace / "tests").glob("*.py")):
+    for path in sorted((workspace / "tests").glob("test_*.py")):
         target = destination / path.name
         shutil.copy(path, target)
         copied.append(target)

@@ -25,6 +25,7 @@ TEMPLATE_VARS = {
     "func_name": "f",
     "test_file": "tests/test_blackbox.py",
     "tools": "",
+    "max_calls": 25,
     "task": "",
 }
 TOOL_FOLDERS = {"blackbox", "whitebox", "combined", "shared"}
@@ -35,7 +36,7 @@ FORBIDDEN = [
     (r"\bminisweagent\b", "use of the agent framework inside a tool"),
     (r"\b(curl|wget|nc|ssh)\s", "network command"),
     (r"openrouter|api\.openai|anthropic\.com|OPENROUTER", "reference to an LLM service"),
-    (r"/proc/|\.env\b|psutil", "reading other processes or secret files"),
+    (r"/proc/|[\'\"/]\.env\b|psutil", "reading other processes or secret files"),
 ]
 MAX_BYTES = 1_000_000
 
@@ -86,7 +87,7 @@ def check_tools(folder: Path) -> list[str]:
         return [f"missing {tools_root}"]
     for entry in tools_root.iterdir():
         if entry.is_dir() and entry.name not in TOOL_FOLDERS:
-            errors.append(f"{entry}: unknown tool folder; use blackbox/, whitebox/ or shared/")
+            errors.append(f"{entry}: unknown tool folder; use blackbox/, whitebox/, combined/ or shared/")
     for sub in TOOL_FOLDERS:
         directory = tools_root / sub
         if not directory.is_dir():

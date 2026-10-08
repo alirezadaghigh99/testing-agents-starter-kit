@@ -45,7 +45,7 @@ def merge_problem(run_dir: Path, problem_id: str, sources: list[str]) -> list[st
     copied = []
     for mode in sources:
         source = run_dir / mode / problem_id
-        for path in sorted((source / "tests").glob("*.py")) if (source / "tests").exists() else []:
+        for path in sorted((source / "tests").glob("test_*.py")) if (source / "tests").exists() else []:
             if path.name not in copied:
                 shutil.copy(path, target / "tests" / path.name)
                 copied.append(path.name)

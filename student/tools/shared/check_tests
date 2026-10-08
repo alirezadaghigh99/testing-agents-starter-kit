@@ -3,14 +3,17 @@
 
 Usage: check_tests
 
-Reports syntax errors, collection errors, the number of collected tests,
-and test functions that contain no assertion.
+Reports syntax errors, collection errors, the number of collected tests, test functions
+that contain no assertion, and anything that makes the evaluator reject a file (for
+example importing os or inspect, calling open, or mentioning solution.py).
 """
 
 import ast
 import subprocess
 import sys
 from pathlib import Path
+
+from testagent.evaluate import source_access
 
 
 def has_assertion(func: ast.AST) -> bool:
@@ -41,6 +44,10 @@ def main() -> int:
             print(f"{path}: syntax error on line {error.lineno}: {error.msg}")
             problems += 1
             continue
+        reason = source_access(path)
+        if reason:
+            print(f"{path}: the evaluator will reject this whole file because it {reason}")
+            problems += 1
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name.startswith("test") and not has_assertion(node):
                 print(f"{path}::{node.name} has no assertion")

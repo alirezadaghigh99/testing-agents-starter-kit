@@ -20,7 +20,14 @@ from testagent.run import RUNS_DIR, STUDENT_DIR
 from testagent.submission import check
 
 REPORT = REPO_ROOT / "REPORT.md"
-PLACEHOLDER = re.compile(r"<[a-z][^<>\n]*>", re.IGNORECASE)
+TEMPLATE = REPO_ROOT / "REPORT_TEMPLATE.md"
+PLACEHOLDER = re.compile(r"<[^<>\n]+>")
+
+
+def leftover_placeholders(report: str) -> list[str]:
+    """Placeholders from the template that are still in the report."""
+    expected = set(PLACEHOLDER.findall(TEMPLATE.read_text())) if TEMPLATE.exists() else set()
+    return sorted(p for p in expected if p in report)
 
 
 def problems_to_check(run_dir: Path) -> list[str]:
@@ -48,8 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     errors = [f"student/: {e}" for e in check(STUDENT_DIR)]
     if not REPORT.exists():
         errors.append("missing REPORT.md: copy REPORT_TEMPLATE.md to REPORT.md and fill it in")
-    elif PLACEHOLDER.search(REPORT.read_text()):
-        errors.append("REPORT.md still has <placeholders> to fill in")
+    elif leftover_placeholders(REPORT.read_text()):
+        left = leftover_placeholders(REPORT.read_text())
+        errors.append(f"REPORT.md still has {len(left)} placeholder(s) from the template, for example {left[0]}")
     errors += problems_to_check(run_dir)
     if errors:
         for error in errors:
@@ -63,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
             if path.is_file() and "__pycache__" not in path.parts:
                 archive.write(path, Path("student") / path.relative_to(STUDENT_DIR))
         archive.write(REPORT, "REPORT.md")
+        for path in sorted((run_dir / "final").glob("*/tests/test_*.py")):
+            archive.write(path, Path("final_tests") / path.relative_to(run_dir / "final"))
         for mode in ("blackbox", "whitebox", "combined", "final"):
             evaluation = run_dir / mode / "evaluation.json"
             if evaluation.exists():

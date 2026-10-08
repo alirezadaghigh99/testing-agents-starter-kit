@@ -1,7 +1,8 @@
 # Report: <team name>
 
-Copy this file to `REPORT.md` and replace every `<placeholder>`. Keep it short: two to four pages.
-Every number must come from the evaluator's output on the development problems.
+Copy this file to `REPORT.md` and replace every placeholder in angle brackets. Keep it under about
+1500 words, tables included. Every number must come from the evaluator's output on the development
+(training) problems.
 
 ## 1. Team
 
@@ -47,6 +48,8 @@ numbers before and after, and what you learned.
 
 1. Which part of your design improved bug detection the most, and how do you know?
 2. How does your agent decide on expected values in black-box mode, and how did you reduce wrong ones?
-3. What does your white-box part add over your black-box part? Use the evaluator's "black-box tests alone" numbers.
+3. What does the white-box side of your agent add over the black-box side? With the separate strategy, use
+   the evaluator's "black-box tests alone" numbers. With the combined strategy, compare against a run of
+   your black-box prompt and tools on their own.
 4. How does your agent decide which tests to keep within the call budget?
 5. Describe two problems where your agent still does badly, and why, using their trajectories.

@@ -25,8 +25,10 @@ from testagent.run import load_settings, mode_limits
 from testagent.workspace import TEST_FILES
 
 RUNS_DIR = REPO_ROOT / "runs"
-PYTEST_TIMEOUT = 120
+PYTEST_TIMEOUT = 600
 MUTANT_TIMEOUT = 120
+TEST_TIMEOUT = 30
+TRACED_TEST_TIMEOUT = 120
 
 # Tests must treat solution.py as a black box. A file that imports one of these modules or uses one
 # of these names can read the source under test (and so "kill" every variant by comparing text),
@@ -58,6 +60,8 @@ class SuiteScore:
     path_coverage: float | None = 0.0
     calls_used: int = 0
     tests_over_budget: int = 0
+    calls_outside_tests: int = 0
+    warnings: list = field(default_factory=list)
     paths: list = field(default_factory=list)
     bugs_total: int = 0
     bugs_killed: int = 0
@@ -96,6 +100,9 @@ def run_pytest(root: Path, node_ids: list[str] | None = None, *, seed: str = "",
         "PYTHONPATH": os.pathsep.join([str(root), str(REPO_ROOT)]),
         "PYTHONDONTWRITEBYTECODE": "1",
         "COVERAGE_FILE": str(root / ".coverage"),
+        "TESTAGENT_TARGET": str(root / "solution.py"),
+        "TESTAGENT_TESTS": str(root / "tests"),
+        "TESTAGENT_TEST_TIMEOUT": str(TEST_TIMEOUT),
     } | (extra_env or {})
     try:
         subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, timeout=timeout)
@@ -106,12 +113,17 @@ def run_pytest(root: Path, node_ids: list[str] | None = None, *, seed: str = "",
     return json.loads(outcomes_path.read_text())
 
 
-def classify(root: Path, reruns: int) -> tuple[list[str], int, int, int]:
+def classify(root: Path, reruns: int, warnings: list[str] | None = None) -> tuple[list[str], int, int, int]:
     """Run the suite several times in random order on the reference.
 
-    Returns (valid test ids, wrong-oracle count, flaky count, collection errors).
+    Returns (valid test ids, wrong-oracle count, flaky count, collection errors). Runs that do not
+    finish are ignored, with a warning, instead of making every test look flaky.
     """
-    runs = [run_pytest(root, seed=str(1000 + i)) or {} for i in range(reruns)]
+    attempts = [run_pytest(root, seed=str(1000 + i)) for i in range(reruns)]
+    runs = [run for run in attempts if run is not None]
+    if len(runs) < len(attempts) and warnings is not None:
+        warnings.append(f"{len(attempts) - len(runs)} of {len(attempts)} runs on the reference did not finish")
+    runs = runs or [{}]
     collection_errors = sum(1 for k in runs[0] if k.startswith("<collection>"))
     node_ids = sorted({k for run in runs for k in run if not k.startswith("<collection>")})
     valid, wrong, flaky = [], 0, 0
@@ -150,38 +162,57 @@ def scored_mutants(problem: Problem, max_mutants: int = 0) -> list:
     return mutants[:max_mutants] if max_mutants else mutants
 
 
-def trace_tests(root: Path, node_ids: list[str] | None = None) -> dict[str, dict]:
-    """Path goals and number of calls into solution.py for each test, in file order."""
+def trace_tests(root: Path, node_ids: list[str] | None = None, goals: bool = False) -> dict | None:
+    """Calls into solution.py per test (in file order) and outside any test; path goals if asked.
+
+    Returns {"tests": {nodeid: {"calls": n, "goals": [...]}}, "outside_calls": n}, or None if the
+    run did not finish.
+    """
     output = root / ".paths.json"
     output.unlink(missing_ok=True)
-    run_pytest(root, node_ids, extra_args=["-p", "testagent.pytest_paths"],
-               extra_env={"TESTAGENT_PATHS": str(output), "TESTAGENT_TARGET": str(root / "solution.py")})
-    return json.loads(output.read_text()) if output.exists() else {}
+    env = {"TESTAGENT_PATHS": str(output), "TESTAGENT_GOALS": "1" if goals else "0"}
+    if goals:
+        env["TESTAGENT_TEST_TIMEOUT"] = str(TRACED_TEST_TIMEOUT)
+    run_pytest(root, node_ids, extra_args=["-p", "testagent.pytest_paths"], extra_env=env)
+    return json.loads(output.read_text()) if output.exists() else None
 
 
-def suite_paths(root: Path, node_ids: list[str]) -> set[str]:
+def suite_paths(root: Path, node_ids: list[str], warnings: list[str]) -> set[str]:
     """Path goals in solution.py reached by the given tests."""
     if not node_ids:
         return set()
-    return {goal for entry in trace_tests(root, node_ids).values() for goal in entry["goals"]}
+    traced = trace_tests(root, node_ids, goals=True)
+    if traced is None:
+        warnings.append("path tracing did not finish; path coverage counts no goals")
+        return set()
+    return {goal for entry in traced["tests"].values() for goal in entry["goals"]}
 
 
-def within_budget(root: Path, valid: list[str], max_calls: int) -> tuple[list[str], int]:
-    """Valid tests that fit the call budget.
+def within_budget(root: Path, valid: list[str], max_calls: int, warnings: list[str]) -> tuple[list[str], int, int]:
+    """Valid tests that fit the call budget, calls used, and calls made outside any test.
 
-    Every test, valid or not, spends its calls into solution.py in file order. Tests after the
+    Calls made outside a test (for example at module level) are spent first. Then every test,
+    valid or not, spends its calls (setup, call and teardown) in file order. Tests after the
     budget runs out are not measured.
     """
+    traced = trace_tests(root)
+    if traced is None:
+        warnings.append("counting calls did not finish; no test could be measured")
+        return [], 0, 0
+    outside = traced["outside_calls"]
+    if outside:
+        warnings.append(f"{outside} calls to the function were made outside any test and spent budget first")
     if not max_calls:
-        return valid, sum(entry["calls"] for entry in trace_tests(root, valid).values()) if valid else 0
-    allowed, used, wanted = [], 0, set(valid)
-    for node_id, entry in trace_tests(root).items():
+        used = outside + sum(traced["tests"].get(node, {}).get("calls", 0) for node in valid)
+        return valid, used, outside
+    allowed, used, wanted = [], outside, set(valid)
+    for node_id, entry in traced["tests"].items():
         if used + entry["calls"] > max_calls:
             break
         used += entry["calls"]
         if node_id in wanted:
             allowed.append(node_id)
-    return allowed, used
+    return allowed, used, outside
 
 
 def variant_timeout(root: Path, node_ids: list[str]) -> int:
@@ -293,13 +324,13 @@ def score_suite(problem: Problem, test_files: list[Path], *, reruns: int, max_mu
     if test_files:
         root = _sandbox(problem, test_files)
         try:
-            valid, score.wrong_oracle, score.flaky, score.collection_errors = classify(root, reruns)
+            valid, score.wrong_oracle, score.flaky, score.collection_errors = classify(root, reruns, score.warnings)
             score.tests_valid = len(valid)
             score.tests_total = len(valid) + score.wrong_oracle + score.flaky
-            valid, score.calls_used = within_budget(root, valid, max_calls)
+            valid, score.calls_used, score.calls_outside_tests = within_budget(root, valid, max_calls, score.warnings)
             score.tests_over_budget = score.tests_valid - len(valid)
             score.line_coverage, score.branch_coverage = coverage(root, valid)
-            score.paths = sorted(suite_paths(root, valid))
+            score.paths = sorted(suite_paths(root, valid, score.warnings))
             timeout = variant_timeout(root, valid) if valid else MUTANT_TIMEOUT
             mutant_variants = [(f"{m.id} line {m.line} {m.operator}", m.source) for m in mutants]
             score.surviving_mutants = kills(root, problem, valid, mutant_variants, timeout)
@@ -334,7 +365,7 @@ def call_budget(mode: str) -> int:
 def evaluate_problem(problem: Problem, result_dir: Path, mode: str, *, reruns: int = 3, max_mutants: int = 0) -> dict:
     """Score one problem's output from a run."""
     tests_dir = result_dir / "tests"
-    files = sorted(tests_dir.glob("*.py")) if tests_dir.exists() else []
+    files = sorted(tests_dir.glob("test_*.py")) if tests_dir.exists() else []
     usage_path = result_dir / "usage.json"
     usage = json.loads(usage_path.read_text()) if usage_path.exists() else {}
     report = {"problem_id": problem.id, "mode": mode, "usage": usage}
@@ -375,6 +406,7 @@ def summarize(reports: list[dict]) -> dict:
         "path_coverage": _mean([s["path_coverage"] for s in suites if s["path_coverage"] is not None]),
         "path_goals_per_problem": _mean([len(s["paths"]) for s in suites]),
         "tests_over_budget": sum(s["tests_over_budget"] for s in suites),
+        "warnings": sum(len(s["warnings"]) for s in suites),
         "smells": {k: sum(s["smells"].get(k, 0) for s in suites) for k in suites[0]["smells"]} if suites else {},
         "total_tokens": sum(r["usage"].get("total_tokens", 0) for r in reports),
         "cost_usd": round(sum(r["usage"].get("cost_usd", 0.0) for r in reports), 6),

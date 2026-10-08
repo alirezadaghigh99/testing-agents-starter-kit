@@ -8,6 +8,8 @@ model:
     provider:
       sort: throughput
       require_parameters: true
+      quantizations:
+        - fp8
 
 limits:
   token_limit: 100000

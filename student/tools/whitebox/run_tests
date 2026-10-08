@@ -17,7 +17,7 @@ def main() -> int:
         print(__doc__.strip())
         return 0
     cmd = [sys.executable, "-m", "pytest", "tests", "-q", "--no-header", "-rfE", "--tb=short", "-p", "no:cacheprovider"]
-    result = subprocess.run(cmd + sys.argv[1:], capture_output=True, text=True, timeout=300)
+    result = subprocess.run(cmd + sys.argv[1:], capture_output=True, text=True, timeout=110)
     output = (result.stdout + result.stderr).strip()
     if len(output) > MAX_CHARS:
         output = "...(output truncated)...\n" + output[-MAX_CHARS:]

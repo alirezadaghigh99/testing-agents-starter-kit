@@ -62,6 +62,7 @@ def template_vars(problem: Problem, mode: str, workspace: Path, tools_root: Path
         "func_name": problem.func_name,
         "test_file": f"tests/{TEST_FILES[mode]}",
         "tools": toolbox.describe(mode, workspace, tools_root),
+        "max_calls": int(mode_limits(load_settings(), mode).get("max_calls", 0)),
     }
 
 
@@ -104,6 +105,8 @@ def run_problem(
     except Exception as error:
         exit_status = f"Error: {type(error).__name__}: {error}"
     tests = collect_tests(workspace, out_dir / "tests")
+    if mode == "whitebox" and blackbox_tests and blackbox_tests.exists():
+        shutil.copy(blackbox_tests, out_dir / "tests" / TEST_FILES["blackbox"])
     usage = {
         "problem_id": problem.id,
         "mode": mode,

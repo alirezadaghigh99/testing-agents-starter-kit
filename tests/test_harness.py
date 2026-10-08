@@ -281,3 +281,97 @@ def test_checker_requires_a_valid_final_strategy(tmp_path):
     shutil.copytree(REPO_ROOT / "student", tmp_path / "student")
     (tmp_path / "student" / "final.yaml").write_text("strategy: both\n")
     assert any("strategy must be" in e for e in check(tmp_path / "student"))
+
+
+MODULE_LEVEL_CALLS = """from solution import Solution
+
+RESULTS = [Solution().countPeaks([i, i + 2, i]) for i in range(200)]
+
+
+def test_all():
+    assert all(r == 1 for r in RESULTS)
+"""
+
+FIXTURE_CALLS = """import pytest
+from solution import Solution
+
+
+@pytest.fixture
+def results():
+    return [Solution().countPeaks([i, i + 2, i]) for i in range(200)]
+
+
+def test_all(results):
+    assert all(r == 1 for r in results)
+"""
+
+BYTECODE_HASH = """import hashlib
+from solution import Solution
+
+
+def test_code_unchanged():
+    code = getattr(Solution.countPeaks, '__co' + 'de__')
+    assert hashlib.sha1(code.co_code).hexdigest() == hashlib.sha1(code.co_code).hexdigest()
+"""
+
+SLOW_AND_FAST = """import time
+from solution import Solution
+
+
+def test_slow():
+    time.sleep(5)
+    assert Solution().countPeaks([1, 3, 2]) == 1
+
+
+def test_fast():
+    assert Solution().countPeaks([1, 3, 1, 3, 1]) == 2
+"""
+
+
+def _suite(problem, tmp_path, text, max_calls=25):
+    from testagent.evaluate import score_suite
+
+    path = tmp_path / "test_blackbox.py"
+    path.write_text(text)
+    return score_suite(problem, [path], reruns=1, max_calls=max_calls, max_mutants=0)
+
+
+def test_module_level_calls_spend_the_budget(problem, tmp_path):
+    suite = _suite(problem, tmp_path, MODULE_LEVEL_CALLS)
+    assert suite.calls_outside_tests == 200
+    assert suite.bugs_killed == 0 and suite.mutants_killed == 0
+
+
+def test_fixture_calls_count_for_their_test(problem, tmp_path):
+    suite = _suite(problem, tmp_path, FIXTURE_CALLS)
+    assert suite.tests_over_budget == 1
+    assert suite.mutants_killed == 0
+
+
+def test_reading_the_code_object_is_blocked(problem, tmp_path):
+    suite = _suite(problem, tmp_path, BYTECODE_HASH)
+    assert suite.tests_valid == 0 and suite.wrong_oracle == 1
+    assert suite.mutants_killed == 0
+
+
+def test_a_slow_test_fails_alone(problem, tmp_path, monkeypatch):
+    import testagent.evaluate as evaluate
+
+    monkeypatch.setattr(evaluate, "TEST_TIMEOUT", 1)
+    suite = _suite(problem, tmp_path, SLOW_AND_FAST)
+    assert suite.tests_valid == 1 and suite.wrong_oracle == 1
+
+
+def test_inner_loop_that_does_not_run_is_recorded(tmp_path):
+    from testagent.paths import PathTracer, decision_lines
+
+    source = "def f(rows):\n    total = 0\n    for row in rows:\n        for x in row:\n            total += x\n    return total\n"
+    path = tmp_path / "loops.py"
+    path.write_text(source)
+    namespace = {}
+    exec(compile(source, str(path), "exec"), namespace)
+    tracer = PathTracer(str(path), *decision_lines(source))
+    tracer.start()
+    namespace["f"]([[], [], []])
+    goals = tracer.stop()
+    assert "loop 4 0" in goals and "loop 3 many" in goals

@@ -33,7 +33,7 @@ Steps:
 
 1. Choose your **one final configuration** in `student/final.yaml` (see below). You may try many
    things, but you submit exactly one. We run that configuration, unchanged, on problems you have not seen.
-2. Run it on all development problems: `python -m testagent.final --run my-final --workers 8`
+2. Run it on all development (training) problems: `python -m testagent.final --run my-final --workers 8`
 3. Measure it: `python -m testagent.evaluate --run my-final --mode final`
 4. Also measure the unchanged starter kit the same way, for the comparison in your report.
 5. Copy `REPORT_TEMPLATE.md` to `REPORT.md` and fill it in.
@@ -82,8 +82,12 @@ Check your folder at any time with `python -m testagent.submission student`.
 
 ### Call budget
 
-Each suite may call the function under test a limited number of times. Tests are counted in file
-order (black-box file first), and any test past the budget is not measured.
+Each suite may call the function under test a limited number of times. Only files named
+`test_*.py` in `tests/` are part of a suite (other files such as `conftest.py` are ignored). Calls made
+outside any test, for example at module level, are spent first. Then tests spend their calls, including
+calls made in their fixtures, in order: files alphabetically (so `test_blackbox.py` comes before
+`test_whitebox.py`), tests in file order. Any test past the budget is not measured. The prompts can use
+`{{max_calls}}` for the budget of the current mode.
 
 | Suite | Calls to the function under test |
 |---|---|
@@ -96,7 +100,7 @@ the actual task. Wrong tests also use up budget, so they cost you twice.
 
 ## Setup
 
-You need Python 3.10 or newer. With [uv](https://docs.astral.sh/uv/):
+You need Python 3.10 to 3.13 (3.12 is recommended). With [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv venv -p 3.12 .venv
@@ -108,11 +112,16 @@ cp .env.example .env
 Put your OpenRouter key in `.env`. About $10 of credit is far more than this project needs: a run of
 the starter agent over all development problems in both modes costs about $1.50.
 
-Check that everything works without spending anything:
+Check that everything works without spending anything (this takes a few minutes):
 
 ```bash
 python -m pytest
 ```
+
+How long things take: one agent run over all 61 problems takes about 15 to 30 minutes with
+`--workers 8`. Measuring all 61 problems takes 30 to 70 minutes depending on your cores (use
+`--workers`). While iterating, use `--only` with a handful of problems; `--max-mutants 10` makes a
+measurement faster but changes the mutation numbers, so do not use it for the numbers you report.
 
 ## Running single modes
 
@@ -181,6 +190,7 @@ The prompt templates are [Jinja](https://jinja.palletsprojects.com/) and can use
 | `{{func_name}}` | Name of the method under test |
 | `{{test_file}}` | File the agent must write, for example `tests/test_blackbox.py` |
 | `{{tools}}` | The `--help` text of every tool available in this mode |
+| `{{max_calls}}` | The call budget of this mode (25 for black-box, 50 otherwise) |
 | `{{mode}}`, `{{problem_id}}`, `{{title}}` | As named |
 
 The agent finishes by running `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`. It is also stopped when it
@@ -192,21 +202,35 @@ reaches a limit below. Whatever tests it has written by then are kept.
 |---|---|---|---|
 | Tokens (prompt plus completion) | 100,000 | 150,000 | 250,000 |
 | Model calls | 40 | 50 | 90 |
-| Cost | $0.05 | $0.05 | $0.05 |
+| Cost (a safety net; the token limit is reached first) | $0.05 | $0.05 | $0.05 |
 | Wall clock | 15 minutes | 15 minutes | 15 minutes |
 | Single command | 120 seconds | 120 seconds | 120 seconds |
+| A single test when measured | 30 seconds | 30 seconds | 30 seconds |
+
+A test that runs longer than 30 seconds fails on its own; the rest of the suite is still measured. Any
+problem the evaluator runs into (a run that did not finish, calls made outside tests) is listed under
+`warnings` in its output instead of silently lowering a score.
 
 ## Data
 
-`data/dev/` holds 61 development problems: the LeetCode problems from the LiveCodeBench
+`data/dev/` holds the 61 development (training) problems: the LeetCode problems from the LiveCodeBench
 [release v5](https://github.com/livecodebench/livecodebench) (October 2024 to January 2025), except
 one with a floating point answer. Each has a reference solution that passes all of LiveCodeBench's
-test cases, about six realistic bugs, and the data the evaluator needs for mutants and paths.
+test cases, realistic bugs, and the data the evaluator needs for mutants and paths.
+
+Know the limits of this data:
+
+- Problems differ a lot. Bugs per problem range from 1 to 8 (about 6 on average), and hard mutants
+  from 0 to 42; 19 problems have none. Look at results per problem, not only at averages.
+- These are public LeetCode problems, so the model may have seen them during training.
+- Runs vary. The same agent can differ by several bugs between two runs on 20 problems, so compare
+  designs over at least two runs before concluding that a change helped.
 
 ## Model settings
 
-`settings.yaml` asks OpenRouter for the fastest provider that supports tool calling, caps each response
-at 8192 tokens, and uses the sampling settings Qwen recommends for its reasoning mode. Temperature 0
+`settings.yaml` asks OpenRouter for the fastest provider that supports tool calling and serves the
+model at fp8 precision, so every team (and our own runs) uses the same precision. It caps each response
+at 8192 tokens and uses the sampling settings Qwen recommends for its reasoning mode. Temperature 0
 makes this model loop in its reasoning, so do not use it.
 
 ## Running in Docker
@@ -215,6 +239,15 @@ The agent runs shell commands. To keep it away from the rest of your machine, ru
 
 ```bash
 docker build -t testing-agents-starter .
-docker run --rm -e OPENROUTER_API_KEY -v "$PWD/student:/submission:ro" -v "$PWD/runs:/home/agent/harness/runs" \
+mkdir -p runs && chmod a+w runs
+docker run --rm --env-file .env -v "$PWD/student:/submission:ro" -v "$PWD/runs:/home/agent/harness/runs" \
     testing-agents-starter testagent.final --run my-final --student /submission --workers 8
 ```
+
+## Rules
+
+- Change only the `student/` folder. Everything else is replaced by a clean copy when we run your work.
+- Your agent and your tools must not read the reference solutions, bugs or mutant data in `data/`, the
+  harness internals, or anything outside the task folder, and must not call any LLM or network service.
+  The evaluator also blocks tests that read the code under test, and we read every tool you submit.
+- You submit exactly one final configuration, and we run it unchanged.
