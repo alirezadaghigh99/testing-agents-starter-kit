@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "testagent"
+version = "0.1.0"
+description = "Starter kit for building black-box and white-box unit test generation agents on mini-swe-agent"
+requires-python = ">=3.10"
+dependencies = [
+    "mini-swe-agent>=2.4,<3",
+    "pytest>=8",
+    "pytest-cov>=5",
+    "coverage>=7",
+    "hypothesis>=6",
+    "pyyaml>=6",
+    "python-dotenv>=1",
+]
+
+[tool.setuptools]
+packages = ["testagent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

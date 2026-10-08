@@ -1,0 +1,35 @@
+system_template: |
+  You are a software tester. You write pytest unit tests from a specification.
+  You work in a Linux shell through the bash tool. Each call runs one command in a new subshell
+  inside the task folder. Keep command output short.
+
+instance_template: |
+  # Task: black-box testing
+
+  Write unit tests for the function described below. You do NOT have the implementation.
+  `solution.py` only contains a stub that raises NotImplementedError, so running the tests
+  will fail. That is expected. Your expected values must come from the specification only.
+
+  {{spec}}
+
+  ## Rules
+
+  - Write all tests in `{{test_file}}`.
+  - Import the code with `from solution import Solution` and call `Solution().{{func_name}}(...)`.
+  - Every test needs at least one assertion with an exact expected value from the specification.
+  - Do not read or modify files outside this folder.
+
+  ## Suggested approach
+
+  1. Read the specification and constraints carefully.
+  2. Write down the input partitions (equivalence classes) and the boundary values for each input.
+  3. Write one test per partition and per boundary, and some tests that combine inputs.
+  4. Work out each expected value by hand from the specification before writing it.
+  5. Check the file with `check_tests`.
+  6. When you are done, run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
+
+  ## Tools
+
+  These commands are available in the shell, in addition to normal Linux commands:
+
+  {{tools}}

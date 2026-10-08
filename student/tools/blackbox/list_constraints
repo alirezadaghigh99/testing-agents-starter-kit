@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""list_constraints: list the numeric constraints in SPEC.md and their boundary values.
+
+Usage: list_constraints
+
+For each line like `1 <= n <= 100` it prints the values at and next to each bound.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+NUMBER = r"-?\d+(?:\s*\*\s*10\^\d+|\^\d+)?"
+PATTERN = re.compile(rf"({NUMBER})\s*<=?\s*(.+?)\s*<=?\s*({NUMBER})")
+
+
+def to_int(text: str) -> int:
+    """Parse numbers like 100, -1000, 10^5 or 2 * 10^5."""
+    text = text.replace(" ", "")
+    if "*10^" in text:
+        base, exp = text.split("*10^")
+        return int(base) * 10 ** int(exp)
+    if "^" in text:
+        base, exp = text.split("^")
+        return int(base) ** int(exp)
+    return int(text)
+
+
+def main() -> int:
+    if "--help" in sys.argv[1:]:
+        print(__doc__.strip())
+        return 0
+    spec = Path("SPEC.md").read_text()
+    found = 0
+    for line in spec.splitlines():
+        match = PATTERN.search(line)
+        if not match:
+            continue
+        low, name, high = to_int(match.group(1)), match.group(2).strip(), to_int(match.group(3))
+        found += 1
+        print(f"{name}: [{low}, {high}]  boundaries: {low}, {low + 1}, {high - 1}, {high}  outside: {low - 1}, {high + 1}")
+    if not found:
+        print("No numeric constraints found in SPEC.md.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

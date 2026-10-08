@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""check_tests: check that the test files in ./tests are valid without running them.
+
+Usage: check_tests
+
+Reports syntax errors, collection errors, the number of collected tests,
+and test functions that contain no assertion.
+"""
+
+import ast
+import subprocess
+import sys
+from pathlib import Path
+
+
+def has_assertion(func: ast.AST) -> bool:
+    """True if the function contains an assert, pytest.raises or an assert* call."""
+    for node in ast.walk(func):
+        if isinstance(node, ast.Assert):
+            return True
+        if isinstance(node, ast.With) and any("raises" in ast.unparse(i.context_expr) for i in node.items):
+            return True
+        if isinstance(node, ast.Call) and "assert" in ast.unparse(node.func):
+            return True
+    return False
+
+
+def main() -> int:
+    if "--help" in sys.argv[1:]:
+        print(__doc__.strip())
+        return 0
+    files = sorted(Path("tests").glob("test_*.py"))
+    if not files:
+        print("No test files found in ./tests (expected tests/test_*.py).")
+        return 1
+    problems = 0
+    for path in files:
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError as error:
+            print(f"{path}: syntax error on line {error.lineno}: {error.msg}")
+            problems += 1
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("test") and not has_assertion(node):
+                print(f"{path}::{node.name} has no assertion")
+                problems += 1
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "tests"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    collected = [line for line in lines if "::" in line]
+    print(f"Collected {len(collected)} tests.")
+    if result.returncode not in (0, 5):
+        print("\n".join(lines[-30:]))
+        problems += 1
+    print("OK" if problems == 0 else f"{problems} problem(s) found.")
+    return 0 if problems == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

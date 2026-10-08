@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""coverage_report: run the tests and show which lines and branches of solution.py are not covered.
+
+Usage: coverage_report
+
+Prints line and branch coverage, then every missed line and every branch
+that was never taken, with the source line next to it.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def main() -> int:
+    if "--help" in sys.argv[1:]:
+        print(__doc__.strip())
+        return 0
+    with tempfile.TemporaryDirectory() as tmp:
+        report = Path(tmp) / "coverage.json"
+        cmd = [
+            sys.executable, "-m", "pytest", "tests", "-q", "--no-header", "-p", "no:cacheprovider",
+            "--cov=solution", "--cov-branch", f"--cov-report=json:{report}",
+        ]
+        env = os.environ | {"COVERAGE_FILE": str(Path(tmp) / ".coverage")}
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+        if not report.exists():
+            print("Coverage could not be measured. pytest output:")
+            print((result.stdout + result.stderr)[-3000:])
+            return 1
+        data = json.loads(report.read_text())
+    entry = next((v for k, v in data["files"].items() if k.endswith("solution.py")), None)
+    if entry is None:
+        print("solution.py was never imported by the tests.")
+        return 1
+    summary = entry["summary"]
+    source = Path("solution.py").read_text().splitlines()
+    print(f"Line coverage:   {summary['covered_lines']}/{summary['num_statements']}")
+    print(f"Branch coverage: {summary['covered_branches']}/{summary['num_branches']}")
+    if result.returncode not in (0, 5):
+        print("Note: some tests failed. Run run_tests to see which.")
+    for line in entry["missing_lines"]:
+        print(f"missed line {line}: {source[line - 1].strip()}")
+    for start, end in entry.get("missing_branches", []):
+        target = "function exit" if end < 0 else f"line {end}"
+        print(f"branch never taken: line {start} -> {target}: {source[start - 1].strip()}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

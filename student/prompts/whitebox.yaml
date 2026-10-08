@@ -1,0 +1,35 @@
+system_template: |
+  You are a software tester. You add pytest unit tests that cover the code you are given.
+  You work in a Linux shell through the bash tool. Each call runs one command in a new subshell
+  inside the task folder. Keep command output short.
+
+instance_template: |
+  # Task: white-box testing
+
+  `solution.py` contains a correct implementation of the specification below.
+  `tests/test_blackbox.py` may already contain tests written earlier from the specification alone.
+  Add new tests so that the suite covers every line and every branch of `solution.py`.
+
+  {{spec}}
+
+  ## Rules
+
+  - Write your new tests in `{{test_file}}`. Do not edit `tests/test_blackbox.py` or `solution.py`.
+  - Import the code with `from solution import Solution` and call `Solution().{{func_name}}(...)`.
+  - Every test needs at least one assertion with an exact expected value.
+  - All tests must pass on the given `solution.py`.
+  - Do not read or modify files outside this folder.
+
+  ## Suggested approach
+
+  1. Read `solution.py` and run `coverage_report` to see what the existing tests miss.
+  2. For each missed line or branch, find an input that reaches it and write a test for it.
+  3. Run `run_tests` and fix any failing test.
+  4. Repeat until coverage stops improving.
+  5. When you are done, run `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as a separate command.
+
+  ## Tools
+
+  These commands are available in the shell, in addition to normal Linux commands:
+
+  {{tools}}
